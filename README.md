@@ -1,28 +1,32 @@
 # LLM Cost Autopilot
 
-An OpenAI-compatible gateway that cuts LLM spend automatically: it scores every prompt,
-routes the easy ones to cheaper models, enforces per-tenant budgets, and proves with a
-judge model that quality did not drop.
+An OpenAI-compatible LLM gateway that cuts inference spend automatically. It scores every
+prompt for complexity, routes easy prompts to cheap models and hard prompts to capable
+ones, enforces per-tenant budgets, and proves with an LLM judge that quality didn't drop.
 
-Drop-in: point any OpenAI SDK at it and change nothing else.
+It's a drop-in proxy: point any OpenAI SDK at it, change nothing else in your app.
 
-## Benchmark
+## Results
 
-500-prompt mixed workload (250 easy / 150 medium / 100 hard), each prompt replayed twice —
-once pinned to `claude-opus-5`, once through the router:
+Real end-to-end run, 100 unique prompts, real inference (local models standing in for
+cost tiers, cloud-equivalent pricing applied), each prompt answered twice — once forced
+to the top-tier model (baseline), once through the router (autopilot):
 
-| Metric | Baseline (always `claude-opus-5`) | Autopilot |
+| Metric | Baseline (always top-tier) | Autopilot |
 | --- | --- | --- |
-| Total cost | $1.2649 | **$0.1368** |
-| Savings | — | **89.2%** |
-| Routing | 100% premium | 73% cheap, 27% mid |
+| Total cost | $3.9091 | **$0.0640** |
+| **Savings** | — | **$3.8452 (98.4%)** |
+| **Judge-scored quality pass rate** | 100% (reference) | **80.0%** (50 judged) |
+| p50 latency | 6146 ms | **282 ms** |
+| p95 latency | 18090 ms | 4959 ms |
 | Errors | 0 | 0 |
 
-These figures come from `make bench` in **mock mode**: the routing decisions and the price
-table are real, but mock completions are a fixed ~12 tokens, so the dollar amounts are not a
-production measurement. See [BENCHMARK.md](BENCHMARK.md) for the full caveat, and run
-`python scripts/benchmark.py --real` with provider keys for quotable latency and quality
-numbers.
+Routing split: 72% cheap tier, 8% mid tier, 20% premium tier — the router correctly
+identified the genuinely hard prompts and still used the expensive model for those.
+
+Full methodology and a second 500-prompt run in [BENCHMARK.local.md](BENCHMARK.local.md)
+and [BENCHMARK.md](BENCHMARK.md). Reproduce it yourself — see [Benchmarking](#benchmarking)
+below; it costs nothing to run, no cloud API key required.
 
 ## Architecture
 
@@ -54,10 +58,20 @@ flowchart LR
 
 ## Quickstart
 
+Requires Docker.
+
 ```bash
-make up          # api :8000, postgres, redis, prometheus :9090, grafana :3000
+git clone https://github.com/omkar-ramesh/llm-cost-autopilot.git
+cd llm-cost-autopilot
+MOCK_PROVIDERS=true make up   # api :8000, postgres, redis, prometheus :9090, grafana :3000
 curl localhost:8000/healthz
 ```
+
+`MOCK_PROVIDERS=true` runs the entire stack — routing, budgets, quality checks, dashboard —
+without any provider API key, using canned responses. Drop the flag and set `OPENAI_API_KEY`
+/ `ANTHROPIC_API_KEY` to hit real providers instead.
+
+Send a request:
 
 ```bash
 curl localhost:8000/v1/chat/completions \
@@ -66,8 +80,8 @@ curl localhost:8000/v1/chat/completions \
   -d '{"model":"claude-opus-5","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-That request asks for `claude-opus-5` and is answered by `gpt-4o-mini`, because the prompt
-scores as trivial. The response headers say so:
+The request asked for `claude-opus-5`, but the response headers show it was actually
+answered by `gpt-4o-mini` — because the prompt scored as trivial:
 
 ```
 x-autopilot-model: gpt-4o-mini
@@ -77,48 +91,78 @@ x-autopilot-cost-usd: 0.00000735
 x-autopilot-savings-usd: 0.00090765
 ```
 
-Set `MOCK_PROVIDERS=true` to run the whole stack without provider API keys.
+Open [localhost:3000](http://localhost:3000) for the Grafana dashboard (no login required).
+
+## Benchmarking
+
+`scripts/benchmark.py` replays a mixed workload (50% easy / 30% medium / 20% hard prompts)
+against a pinned top-tier baseline and the router, then reports cost, savings, judge-scored
+quality, and latency.
+
+**Option A — mock mode** (instant, no cost, routing/pricing logic only, not real inference):
 
 ```bash
-make bench       # replays the benchmark workload, writes BENCHMARK.md
+make bench
+```
+
+**Option B — real local models** (free, real inference, real latency and quality numbers —
+what produced the results above). Requires [Ollama](https://ollama.com):
+
+```bash
+ollama pull qwen2.5:3b qwen2.5:14b qwen2.5-coder:32b   # cheap / mid / premium stand-ins
+ROUTING_CONFIG_PATH=config/routing.local.yaml MOCK_PROVIDERS=false uvicorn app.main:app &
+BENCH_JUDGE_MODEL=ollama/qwen2.5-coder:32b python scripts/benchmark.py --n 100 --real
+```
+
+**Option C — real cloud providers** (costs real money, most representative numbers):
+
+```bash
+OPENAI_API_KEY=... ANTHROPIC_API_KEY=... BENCH_JUDGE_MODEL=gpt-4o \
+  python scripts/benchmark.py --real
 ```
 
 ## Routing
 
-Each prompt gets a heuristic complexity score (0–1) from a single pure function — prompt
-length, code/math/JSON-schema/tool signals, multi-step language, turn count and system
-prompt size. The score picks a tier: `cheap` (≤0.35), `mid` (≤0.70), `premium`. On a
-timeout, 429 or 5xx the request falls back *up* the chain rather than failing.
+Each prompt gets a heuristic complexity score (0-1) from a single pure function — prompt
+length, code/math/JSON-schema/tool signals, multi-step language, turn count, and system
+prompt size. The score picks a tier: `cheap` (score ≤0.35), `mid` (≤0.70), `premium`
+(above). On a timeout, 429, or 5xx, the request falls back *up* the chain instead of
+failing outright.
 
-Callers can steer per request:
+Callers can steer routing per request:
 
 | Header | Effect |
 | --- | --- |
-| `x-autopilot-mode: cheap\|balanced\|quality` | Force cheapest tier, score-based (default), or premium |
-| `x-autopilot-model: <model>` | Pin an exact model and skip routing |
+| `x-autopilot-mode: cheap\|balanced\|quality` | Force cheapest tier, score-based (default), or force premium |
+| `x-autopilot-model: <model>` | Pin an exact model and skip routing entirely |
 
-Tiers, prices, thresholds and the judge live in [config/routing.yaml](config/routing.yaml).
+Tiers, prices, thresholds, and the judge model are configured in
+[config/routing.yaml](config/routing.yaml).
 
 ## Quality guard
 
 A sampled share of routed-down requests (5% by default) is re-run on the originally
-requested model and scored by a judge model. Scores land in the `evals` table; after 3
-consecutive failures a prompt class (e.g. `code:long`) is routed one tier higher for 24h.
+requested model and scored by a judge model (LLM-as-judge, 0-1 scale). Scores are stored
+per-request in the `evals` table. After 3 consecutive failures, that class of prompt
+(e.g. `code:long`) is automatically routed one tier higher for 24 hours.
 
 ```bash
 curl localhost:8000/v1/autopilot/quality -H "Authorization: Bearer sk-autopilot-dev"
 ```
 
-Shadow-eval spend is tracked separately (`autopilot_shadow_eval_cost_usd_total`) so the
-cost of proving quality is never mistaken for savings.
+Shadow-eval spend is tracked separately from routing savings
+(`autopilot_shadow_eval_cost_usd_total`), so the cost of proving quality is never
+mistaken for savings.
 
 ## Budgets
 
-Each API key carries a daily and monthly budget, counted in Redis. At 80% the gateway
-alerts once per window (set `ALERT_WEBHOOK_URL` for Slack or any webhook) and forces the
-cheapest tier; at 100% it returns `429` with a `budget_exceeded` body.
+Every API key carries a daily and monthly spend budget, tracked in Redis. At 80% of
+budget the gateway fires one alert per window (set `ALERT_WEBHOOK_URL` for Slack or any
+webhook) and forces the cheapest tier; at 100% it returns `429` with a structured
+`budget_exceeded` error body.
 
-Admin endpoints are guarded by `x-admin-token` (`ADMIN_TOKEN`, default `admin-dev-token`):
+Admin endpoints (guarded by an `x-admin-token` header, `ADMIN_TOKEN` env var, default
+`admin-dev-token`) manage tenants and keys:
 
 ```bash
 curl -X POST localhost:8000/v1/admin/tenants \
@@ -131,28 +175,67 @@ curl -X POST localhost:8000/v1/admin/keys \
 ```
 
 `GET /v1/admin/tenants/{id}/spend` reports live spend; `PATCH /v1/admin/keys/{id}/budget`
-updates budgets or deactivates a key.
+updates a key's budget or deactivates it.
 
 ## Caching
 
 Exact-match response cache in Redis, keyed on the semantic request fields **and the model
-that answered** — so a `quality` request is never served an answer a cheap model produced.
-Streaming and non-deterministic requests (`temperature > 0`, `n > 1`) bypass it. A cache
-outage degrades to a miss, never an error. The `get`/`set` interface is deliberately narrow
-so a semantic cache can replace the backend without touching the pipeline.
+that actually answered** — so a `quality`-mode request is never served a cheap model's
+cached answer for the same prompt. Streaming and non-deterministic requests
+(`temperature > 0`, `n > 1`) bypass the cache. A Redis outage degrades to a cache miss,
+never an error.
 
 ## Dashboard
 
-Grafana at [localhost:3000](http://localhost:3000) (anonymous viewer) auto-provisions the
-**LLM Cost Autopilot** dashboard: spend and savings totals, spend per hour by model, tokens,
-p50/p95 latency, shadow-eval pass rate and cost, tier escalations, and budget cap events.
+Grafana at [localhost:3000](http://localhost:3000) auto-provisions the
+**LLM Cost Autopilot** dashboard: spend and savings totals, spend per hour by model,
+token throughput, p50/p95 latency, shadow-eval pass rate and cost, tier escalations,
+and budget cap events.
+
+## Tech stack
+
+| Layer | Choice |
+| --- | --- |
+| Language | Python 3.12 |
+| Web framework | FastAPI + Uvicorn |
+| LLM provider abstraction | LiteLLM (OpenAI, Anthropic, Ollama, and others) |
+| Database | PostgreSQL + SQLModel |
+| Cache / counters | Redis |
+| Metrics | Prometheus |
+| Dashboard | Grafana |
+| Containerization | Docker + Docker Compose |
+| Testing | pytest (127 tests, all provider calls mocked) |
+| Linting | ruff |
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-make test        # pytest
+make test        # pytest, 127 tests
 make lint        # ruff
 ```
 
-Provider calls are mocked in every test; nothing in CI touches a real API.
+Every test mocks the provider call — nothing in the test suite hits a real API.
+
+## Project structure
+
+```
+app/
+  main.py       FastAPI app, routes
+  gateway.py    request pipeline orchestration
+  router.py     complexity scoring + tier selection + fallback chain
+  budget.py     Redis-backed spend counters, soft/hard cap enforcement
+  quality.py    shadow eval, LLM-as-judge, tier escalation
+  cache.py      Redis exact-match response cache
+  admin.py      tenant/key/budget admin API
+  pricing.py    per-model cost calculation
+  metrics.py    Prometheus counters and histograms
+  models.py     SQLModel tables
+config/
+  routing.yaml       tiers, prices, judge config (cloud providers)
+  routing.local.yaml tiers pointed at local Ollama models, for free benchmarking
+  grafana/           provisioned dashboard + datasource
+scripts/
+  benchmark.py  replays a mixed workload, writes a cost/quality/latency report
+tests/          127 tests, one file per module
+```
