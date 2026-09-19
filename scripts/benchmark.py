@@ -23,8 +23,8 @@ from app.quality import JUDGE_SYSTEM, parse_judge_score  # noqa: E402
 
 BASE_URL = os.environ.get("BENCH_URL", "http://localhost:8000")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "admin-dev-token")
-BASELINE_MODEL = "claude-opus-5"
-JUDGE_MODEL = "gpt-4o"
+BASELINE_MODEL = os.environ.get("BENCH_BASELINE_MODEL", "claude-opus-5")
+JUDGE_MODEL = os.environ.get("BENCH_JUDGE_MODEL", "gpt-4o")
 
 EASY = [
     "What is the capital of {country}?",
@@ -42,16 +42,57 @@ MEDIUM = [
     "Draft release notes for version {n} covering: auth fixes, faster search, new export.",
 ]
 
-HARD = [
-    "Refactor this module step by step.\n```python\n{code}```\n"
-    "First analyze the hot path, then design a fix and explain why. "
-    "Also prove the complexity bound: $$O(n \\log n)$$",
-    "Design a multi-region failover architecture for {thing}. Step by step: "
-    "first analyze the failure modes, then evaluate the trade-offs of each option, "
-    "then implement a rollout plan.\n```yaml\n{code}```",
-    "Debug this and explain why it deadlocks, then optimize it:\n```python\n{code}```\n"
-    "Compare at least two approaches and justify the theorem behind your choice.",
-]
+def _hard_refactor(code: str, thing: str, tag: str) -> list[dict]:
+    return [
+        {"role": "system", "content": "You are a principal engineer. " * 40},
+        {"role": "user", "content": f"Refactor this module step by step.\n```python\n{code}```"},
+        {"role": "assistant", "content": "Sure, which part first?"},
+        {
+            "role": "user",
+            "content": "First analyze the hot path, then design a fix and explain why.",
+        },
+        {"role": "assistant", "content": "Understood."},
+        {
+            "role": "user",
+            "content": f"Also prove the complexity bound: $$O(n \\log n)$$ (request {tag})",
+        },
+    ]
+
+
+def _hard_failover(code: str, thing: str, tag: str) -> list[dict]:
+    return [
+        {"role": "system", "content": "You are a principal SRE. " * 40},
+        {"role": "user", "content": f"Design a multi-region failover architecture for {thing}."},
+        {"role": "assistant", "content": "Sure, where should we start?"},
+        {
+            "role": "user",
+            "content": "First analyze the failure modes, then evaluate the trade-offs "
+            "of each option.",
+        },
+        {"role": "assistant", "content": "Understood."},
+        {
+            "role": "user",
+            "content": f"Then implement a rollout plan.\n```yaml\n{code}```(request {tag})",
+        },
+    ]
+
+
+def _hard_deadlock(code: str, thing: str, tag: str) -> list[dict]:
+    return [
+        {"role": "system", "content": "You are a distributed-systems expert. " * 40},
+        {"role": "user", "content": f"Debug this and explain why it deadlocks:\n```python\n{code}```"},
+        {"role": "assistant", "content": "Let's work through it."},
+        {
+            "role": "user",
+            "content": "Compare at least two approaches and justify the theorem behind "
+            "your choice.",
+        },
+        {"role": "assistant", "content": "Understood."},
+        {"role": "user", "content": f"Then optimize it and prove correctness. (request {tag})"},
+    ]
+
+
+HARD_BUILDERS = [_hard_refactor, _hard_failover, _hard_deadlock]
 
 COUNTRIES = ["France", "Japan", "Brazil", "Kenya", "Norway", "Chile", "Egypt", "Nepal"]
 WORDS = ["butterfly", "keyboard", "river", "silence", "harvest", "anchor"]
@@ -63,6 +104,10 @@ PAIRS = [("Postgres", "MySQL"), ("Kafka", "RabbitMQ"), ("Redis", "Memcached")]
 class Sample:
     difficulty: str
     prompt: str
+    messages: list[dict] | None = None  # full conversation; falls back to a single user turn
+
+    def as_messages(self) -> list[dict]:
+        return self.messages or [{"role": "user", "content": self.prompt}]
 
 
 @dataclass
@@ -113,29 +158,41 @@ def build_workload(n: int, seed: int = 7, salt: str = "") -> list[Sample]:
 
     for i in range(n):
         roll = i / n
-        if roll < 0.5:
-            difficulty, template = "easy", rng.choice(EASY)
-        elif roll < 0.8:
-            difficulty, template = "medium", rng.choice(MEDIUM)
-        else:
-            difficulty, template = "hard", rng.choice(HARD)
-
         a, b = rng.choice(PAIRS)
-        prompt = template.format(
-            country=rng.choice(COUNTRIES),
-            word=rng.choice(WORDS),
-            thing=rng.choice(THINGS),
-            date=f"2026-0{rng.randint(1, 9)}-1{rng.randint(0, 9)}",
-            n=i,
-            a=a,
-            b=b,
-            schema='{"type": "object", "properties": {"id": {"type": "string"}}}' * 6,
-            log=f"ERROR conn pool exhausted after {rng.randint(10, 900)}ms (req {i})",
-            code=f"def handler_{i}(x):\n    return x + 1\n" * rng.randint(20, 60),
-        )
+        thing = rng.choice(THINGS)
         # Every prompt is unique, so the measured savings come from routing, not cache hits.
         tag = f"{salt}-{i}" if salt else str(i)
-        samples.append(Sample(difficulty, f"{prompt} (request {tag})"))
+
+        if roll < 0.5:
+            difficulty, template = "easy", rng.choice(EASY)
+            prompt = template.format(
+                country=rng.choice(COUNTRIES),
+                word=rng.choice(WORDS),
+                thing=thing,
+                date=f"2026-0{rng.randint(1, 9)}-1{rng.randint(0, 9)}",
+                n=i,
+            )
+            samples.append(Sample(difficulty, f"{prompt} (request {tag})"))
+        elif roll < 0.8:
+            difficulty, template = "medium", rng.choice(MEDIUM)
+            prompt = template.format(
+                a=a,
+                b=b,
+                n=i,
+                schema='{"type": "object", "properties": {"id": {"type": "string"}}}' * 6,
+                log=f"ERROR conn pool exhausted after {rng.randint(10, 900)}ms (req {i})",
+            )
+            samples.append(Sample(difficulty, f"{prompt} (request {tag})"))
+        else:
+            difficulty = "hard"
+            # Larger code block than easy/medium prompts and a real multi-turn shape
+            # (system prompt + prior turns) - both push the score past the premium threshold,
+            # matching the router's own Phase 3 calibration fixture.
+            code = f"def handler_{i}(x):\n    return x + 1\n" * rng.randint(150, 300)
+            builder = rng.choice(HARD_BUILDERS)
+            messages = builder(code, thing, tag)
+            prompt = "\n---\n".join(m["content"] for m in messages)
+            samples.append(Sample(difficulty, prompt, messages=messages))
 
     rng.shuffle(samples)
     return samples
@@ -168,7 +225,7 @@ def run(client: httpx.Client, samples: list[Sample], api_key: str, mode: str, la
     for i, sample in enumerate(samples, 1):
         body = {
             "model": BASELINE_MODEL,
-            "messages": [{"role": "user", "content": sample.prompt}],
+            "messages": sample.as_messages(),
         }
         started = time.perf_counter()
         try:
@@ -214,6 +271,8 @@ def judge(
     chosen = candidates[:limit]
 
     passed = 0
+    judged = 0
+    judge_errors = 0
     for n, i in enumerate(chosen, 1):
         body = {
             "model": JUDGE_MODEL,
@@ -231,15 +290,32 @@ def judge(
         }
         try:
             resp = client.post(f"{BASE_URL}/v1/chat/completions", headers=headers, json=body)
-            content = (resp.json().get("choices") or [{}])[0].get("message", {}).get("content", "")
-        except httpx.HTTPError:
+        except httpx.HTTPError as exc:
+            judge_errors += 1
+            print(f"  judge call failed (network): {exc}", file=sys.stderr)
             continue
+
+        if resp.status_code != 200:
+            # A gateway error (e.g. missing provider key, unknown judge model) must not be
+            # silently scored as a fail - that hides a broken benchmark as "0% quality".
+            judge_errors += 1
+            print(f"  judge call failed ({resp.status_code}): {resp.text[:200]}", file=sys.stderr)
+            continue
+
+        content = (resp.json().get("choices") or [{}])[0].get("message", {}).get("content", "")
         score, _ = parse_judge_score(content)
         passed += int(score >= 0.8)
+        judged += 1
         if n % 25 == 0:
             print(f"  judge: {n}/{len(chosen)}", flush=True)
 
-    return passed / len(chosen), len(chosen)
+    if judge_errors:
+        print(f"  WARNING: {judge_errors}/{len(chosen)} judge calls failed - check "
+              f"BENCH_JUDGE_MODEL is a model the gateway can actually reach.", file=sys.stderr)
+
+    if judged == 0:
+        return None, 0
+    return passed / judged, judged
 
 
 def format_report(

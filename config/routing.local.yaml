@@ -1,0 +1,28 @@
+# Local-model variant for real (free) benchmarking against Ollama.
+# Model names are real local models; prices are the cloud-equivalent tier prices
+# from routing.yaml, so dollar savings still reflect what these tiers cost in production.
+tiers:
+  cheap:
+    models: [ollama/qwen2.5:3b]
+    max_score: 0.35
+  mid:
+    models: [ollama/qwen2.5:14b]
+    max_score: 0.70
+  premium:
+    models: [ollama/qwen2.5-coder:32b]
+    max_score: 1.00
+
+fallback_on: [timeout, 429, 5xx]
+
+shadow_eval:
+  sample_rate: 0.05
+  judge: ollama/qwen2.5-coder:32b
+  pass_threshold: 0.8
+
+escalate_after_fails: 3
+
+# [input_per_1m_usd, output_per_1m_usd] - cloud-equivalent pricing for each tier's capability class
+prices_per_1m:
+  ollama/qwen2.5:3b: [0.15, 0.60]          # ~ gpt-4o-mini
+  ollama/qwen2.5:14b: [2.50, 10.00]        # ~ gpt-4o
+  ollama/qwen2.5-coder:32b: [15.00, 75.00] # ~ claude-opus-5
