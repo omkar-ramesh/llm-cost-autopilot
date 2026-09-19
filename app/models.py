@@ -26,6 +26,18 @@ class ApiKey(SQLModel, table=True):
     active: bool = True
 
 
+class BudgetEvent(SQLModel, table=True):
+    __tablename__ = "budget_events"
+
+    id: int | None = Field(default=None, primary_key=True)
+    tenant_id: int = Field(index=True)
+    kind: str  # soft | hard
+    period: str  # daily | monthly
+    spend_usd: float
+    budget_usd: float
+    ts: datetime = Field(default_factory=utcnow, index=True)
+
+
 class Eval(SQLModel, table=True):
     __tablename__ = "evals"
 

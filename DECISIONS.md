@@ -9,6 +9,11 @@
 - Savings counter only increments when savings > 0 (populated from Phase 3 onward, once the router routes down).
 - Scorer weights calibrated against a sample spread, not fitted to one prompt: code/math/schema signals (0.35) outweigh conversation turns (0.12), since turn count is a weak difficulty signal.
 - Fallback chain = chosen tier then every tier above it, so a retryable failure escalates quality rather than degrading it.
+- Budget enforcement reads Redis counters, not Postgres — the check sits on the hot path and must not wait on a table scan.
+- Alert dedup uses an atomic `SET NX` claim per tenant/kind/window, so concurrent requests fire exactly one alert.
+- A soft cap forces the cheap tier but never blocks; only the hard cap returns 429. Crossing a cap also writes a `budget_events` row.
+- Spend counters carry TTLs past their window (3d daily, 40d monthly) so a late request cannot resurrect an expired key.
+- Raw API keys are returned once at creation; only the SHA-256 hash is stored.
 - Prompt class = dominant signal + length bucket (e.g. `code:long`), so escalation lifts a family of prompts rather than one request.
 - Shadow-eval baseline/judge calls are not written to `requests` — they would pollute savings — but their spend is counted in `autopilot_shadow_eval_cost_usd_total`.
 - Escalation state lives in Redis with a 24h TTL; `is_escalated` fails open, since a Redis outage must not break live traffic.

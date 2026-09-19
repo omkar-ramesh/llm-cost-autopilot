@@ -53,6 +53,20 @@ fallbacks_total = Counter(
     registry=REGISTRY,
 )
 
+budget_events_total = Counter(
+    "autopilot_budget_events_total",
+    "Budget cap crossings alerted (once per tenant, kind and window)",
+    ["kind", "period"],
+    registry=REGISTRY,
+)
+
+budget_blocks_total = Counter(
+    "autopilot_budget_blocks_total",
+    "Requests rejected because a hard cap was exhausted",
+    ["period"],
+    registry=REGISTRY,
+)
+
 evals_total = Counter(
     "autopilot_evals_total",
     "Shadow evals completed",

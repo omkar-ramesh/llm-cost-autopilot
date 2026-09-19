@@ -27,6 +27,8 @@ services:
       DATABASE_URL: postgresql+psycopg://autopilot:autopilot@postgres:5432/autopilot
       REDIS_URL: redis://redis:6379/0
       MOCK_PROVIDERS: ${MOCK_PROVIDERS:-false}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-admin-dev-token}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:

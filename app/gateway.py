@@ -7,12 +7,12 @@ from typing import Any
 from fastapi import BackgroundTasks, HTTPException
 from sqlmodel import Session
 
-from app import metrics, providers, quality, router
+from app import budget, metrics, providers, quality, router
 from app.auth import Principal
 from app.cache import get_cache
 from app.config import get_routing_config, get_settings
 from app.db import get_engine
-from app.models import Request
+from app.models import BudgetEvent, Request
 from app.pricing import cost_usd
 
 MODEL_HEADER = "x-autopilot-model"
@@ -88,6 +88,8 @@ def _log_request(
     session.commit()
     session.refresh(row)
 
+    budget.record_spend(row.tenant_id, row.cost_usd)
+
     metrics.record_request(
         tenant_id=row.tenant_id,
         requested_model=requested_model,
@@ -104,7 +106,41 @@ def _log_request(
     return row
 
 
-def plan(payload: dict[str, Any], headers: dict[str, str]) -> tuple[str, router.RoutingDecision]:
+def enforce_budget(
+    principal: Principal,
+    session: Session,
+    background: BackgroundTasks | None = None,
+) -> budget.BudgetStatus:
+    """Hard cap rejects the request; soft cap alerts once per window and forces cheap."""
+    status = budget.check(principal)
+
+    if status.state != budget.OK and budget.claim_alert(
+        principal.tenant_id, status.state, status.breached_period
+    ):
+        metrics.budget_events_total.labels(status.state, status.breached_period).inc()
+        session.add(
+            BudgetEvent(
+                tenant_id=principal.tenant_id,
+                kind=status.state,
+                period=status.breached_period,
+                spend_usd=status.spend_for(status.breached_period),
+                budget_usd=status.budget_for(status.breached_period),
+            )
+        )
+        session.commit()
+        if background is not None:
+            background.add_task(budget.send_alert, principal.tenant_id, status)
+
+    if status.over_hard_cap:
+        metrics.budget_blocks_total.labels(status.breached_period).inc()
+        raise HTTPException(429, status.as_error())
+
+    return status
+
+
+def plan(
+    payload: dict[str, Any], headers: dict[str, str], force_cheapest: bool = False
+) -> tuple[str, router.RoutingDecision]:
     lowered = {k.lower(): v for k, v in headers.items()}
     requested_model = payload.get("model") or get_settings().default_model
     messages = payload.get("messages", [])
@@ -115,6 +151,7 @@ def plan(payload: dict[str, Any], headers: dict[str, str]) -> tuple[str, router.
         model_override=lowered.get(MODEL_HEADER),
         tools=tools,
         escalated=quality.is_escalated(quality.prompt_class(messages, tools)),
+        force_cheapest=force_cheapest,
     )
     return requested_model, decision
 
@@ -146,7 +183,8 @@ async def handle_completion(
     headers: dict[str, str] | None = None,
     background: BackgroundTasks | None = None,
 ) -> GatewayResult:
-    requested_model, decision = plan(payload, headers or {})
+    status = enforce_budget(principal, session, background)
+    requested_model, decision = plan(payload, headers or {}, status.over_soft_cap)
 
     cache_key = json.dumps(payload, sort_keys=True, default=str)
     cached = await get_cache().get(cache_key)
@@ -212,8 +250,9 @@ async def stream_completion(
     payload: dict[str, Any],
     principal: Principal,
     headers: dict[str, str] | None = None,
+    force_cheapest: bool = False,
 ) -> AsyncIterator[str]:
-    requested_model, decision = plan(payload, headers or {})
+    requested_model, decision = plan(payload, headers or {}, force_cheapest)
     started = time.perf_counter()
     prompt_tokens = completion_tokens = 0
     status = "ok"

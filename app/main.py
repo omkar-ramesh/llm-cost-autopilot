@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlmodel import Session
 
-from app import gateway, metrics, quality
+from app import admin, gateway, metrics, quality
 from app.auth import Principal, authenticate
 from app.db import get_session, init_db
 
@@ -19,6 +19,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="LLM Cost Autopilot", lifespan=lifespan)
+app.include_router(admin.router)
 
 
 @app.get("/metrics")
@@ -42,9 +43,10 @@ async def chat_completions(
     headers = dict(request.headers)
 
     if payload.get("stream"):
-        _, decision = gateway.plan(payload, headers)
+        status = gateway.enforce_budget(principal, session, background)
+        _, decision = gateway.plan(payload, headers, status.over_soft_cap)
         return StreamingResponse(
-            gateway.stream_completion(payload, principal, headers),
+            gateway.stream_completion(payload, principal, headers, status.over_soft_cap),
             media_type="text/event-stream",
             headers={
                 gateway.MODEL_HEADER: decision.primary,

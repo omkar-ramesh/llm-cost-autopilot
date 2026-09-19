@@ -213,7 +213,7 @@
       "type": "timeseries",
       "title": "Request rate by status",
       "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 29 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
       "fieldConfig": {
         "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10 } },
         "overrides": []
@@ -223,6 +223,26 @@
           "refId": "A",
           "expr": "sum by (status, routed_model) (rate(autopilot_requests_total[5m]))",
           "legendFormat": "{{status}} {{routed_model}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Budget cap events and blocks",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (kind, period) (autopilot_budget_events_total)",
+          "legendFormat": "{{kind}} cap {{period}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (period) (autopilot_budget_blocks_total)",
+          "legendFormat": "blocked {{period}}"
         }
       ]
     }

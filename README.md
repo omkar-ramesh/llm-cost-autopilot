@@ -48,6 +48,27 @@ curl localhost:8000/v1/autopilot/quality -H "Authorization: Bearer sk-autopilot-
 Shadow-eval spend is tracked separately (`autopilot_shadow_eval_cost_usd_total`) so the
 cost of proving quality is never mistaken for savings.
 
+### Budgets
+
+Each API key carries a daily and monthly budget, counted in Redis. At 80% the gateway
+alerts once per window (set `ALERT_WEBHOOK_URL` for Slack or any webhook) and forces the
+cheapest tier; at 100% it returns `429` with a `budget_exceeded` error body.
+
+Admin endpoints are guarded by `x-admin-token` (`ADMIN_TOKEN`, default `admin-dev-token`):
+
+```bash
+curl -X POST localhost:8000/v1/admin/tenants \
+  -H "x-admin-token: admin-dev-token" -H "Content-Type: application/json" \
+  -d '{"name":"acme"}'
+
+curl -X POST localhost:8000/v1/admin/keys \
+  -H "x-admin-token: admin-dev-token" -H "Content-Type: application/json" \
+  -d '{"tenant_id":1,"daily_budget_usd":25,"monthly_budget_usd":500}'
+```
+
+`GET /v1/admin/tenants/{id}/spend` reports live spend; `PATCH /v1/admin/keys/{id}/budget`
+updates budgets or deactivates a key.
+
 ## Development
 
 ```bash

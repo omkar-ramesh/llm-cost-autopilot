@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     default_model: str = "gpt-4o-mini"
     request_timeout_s: float = 60.0
     mock_providers: bool = False
+    admin_token: str = "admin-dev-token"
+    alert_webhook_url: str = ""
+    soft_cap_ratio: float = 0.8
 
 
 class RoutingConfig(dict):
