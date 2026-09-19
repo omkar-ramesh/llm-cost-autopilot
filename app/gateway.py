@@ -8,6 +8,7 @@ from fastapi import BackgroundTasks, HTTPException
 from sqlmodel import Session
 
 from app import budget, metrics, providers, quality, router
+from app import cache as cache_module
 from app.auth import Principal
 from app.cache import get_cache
 from app.config import get_routing_config, get_settings
@@ -67,7 +68,8 @@ def _log_request(
     status: str,
     cache_hit: bool = False,
 ) -> Request:
-    cost = cost_usd(routed_model, prompt_tokens, completion_tokens)
+    # A cache hit never reaches a provider, so it costs nothing.
+    cost = 0.0 if cache_hit else cost_usd(routed_model, prompt_tokens, completion_tokens)
     baseline = cost_usd(requested_model, prompt_tokens, completion_tokens)
     row = Request(
         tenant_id=principal.tenant_id,
@@ -186,17 +188,29 @@ async def handle_completion(
     status = enforce_budget(principal, session, background)
     requested_model, decision = plan(payload, headers or {}, status.over_soft_cap)
 
-    cache_key = json.dumps(payload, sort_keys=True, default=str)
-    cached = await get_cache().get(cache_key)
-    if cached is not None:
-        row = _log_request(
-            session, principal, requested_model, decision.primary, decision,
-            0, 0, 0, "ok", cache_hit=True,
-        )
-        return GatewayResult(
-            body=cached,
-            headers=_headers(decision, decision.primary, 0.0, row.baseline_cost_usd),
-        )
+    cache = get_cache()
+    cacheable = cache_module.is_cacheable(payload)
+    if cacheable:
+        cached = await cache.get(cache_module.cache_key(payload, decision.primary))
+        if cached is not None:
+            # A hit costs nothing, so the whole baseline cost is the saving.
+            usage = cached.get("usage") or {}
+            row = _log_request(
+                session,
+                principal,
+                requested_model,
+                decision.primary,
+                decision,
+                usage.get("prompt_tokens", 0),
+                usage.get("completion_tokens", 0),
+                0,
+                "ok",
+                cache_hit=True,
+            )
+            return GatewayResult(
+                body=cached,
+                headers=_headers(decision, decision.primary, 0.0, row.baseline_cost_usd),
+            )
 
     started = time.perf_counter()
     try:
@@ -224,6 +238,10 @@ async def handle_completion(
         latency_ms,
         "ok",
     )
+    if cacheable:
+        # Stored under the model that actually answered, which may differ after a fallback.
+        await cache.set(cache_module.cache_key(payload, routed_model), response)
+
     savings = row.baseline_cost_usd - row.cost_usd
     result = GatewayResult(
         body=response, headers=_headers(decision, routed_model, row.cost_usd, savings)

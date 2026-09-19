@@ -9,6 +9,11 @@
 - Savings counter only increments when savings > 0 (populated from Phase 3 onward, once the router routes down).
 - Scorer weights calibrated against a sample spread, not fitted to one prompt: code/math/schema signals (0.35) outweigh conversation turns (0.12), since turn count is a weak difficulty signal.
 - Fallback chain = chosen tier then every tier above it, so a retryable failure escalates quality rather than degrading it.
+- Cache keys include the routed model: keying on the payload alone let a `quality`-mode request be served a cheap model's cached answer.
+- Cache hits are logged with `cost_usd = 0` and the full baseline as savings, since no provider was called.
+- Benchmark prompts carry a per-run salt — without it a second run was served the first run's cache and reported $0.00 cost.
+- Benchmark prompts are all unique, so reported savings are attributable to routing rather than caching.
+- Cache and shadow sampling are both disabled by default in tests and opted into explicitly; they are cross-cutting and otherwise silently change unrelated assertions.
 - Budget enforcement reads Redis counters, not Postgres — the check sits on the hot path and must not wait on a table scan.
 - Alert dedup uses an atomic `SET NX` claim per tenant/kind/window, so concurrent requests fire exactly one alert.
 - A soft cap forces the cheap tier but never blocks; only the hard cap returns 429. Crossing a cap also writes a `budget_events` row.

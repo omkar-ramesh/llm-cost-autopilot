@@ -13,7 +13,7 @@ lint:
 	ruff check app tests
 
 bench:
-	python scripts/benchmark.py
+	python scripts/benchmark.py $(BENCH_ARGS)
 
 migrate:
 	python -c "from app.db import init_db; init_db()"

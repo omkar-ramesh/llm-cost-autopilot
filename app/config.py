@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     admin_token: str = "admin-dev-token"
     alert_webhook_url: str = ""
     soft_cap_ratio: float = 0.8
+    cache_enabled: bool = True
+    cache_ttl_s: int = 3600
 
 
 class RoutingConfig(dict):

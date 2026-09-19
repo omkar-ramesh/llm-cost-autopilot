@@ -31,6 +31,24 @@ def no_shadow_sampling(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_cache(monkeypatch):
+    """The cache is cross-cutting; tests that exercise it opt in via the `cache` fixture."""
+    from app import cache, gateway
+
+    monkeypatch.setattr(gateway, "get_cache", lambda: cache.NullCache())
+
+
+@pytest.fixture
+def cache(monkeypatch):
+    from app import cache as cache_module
+    from app import gateway
+
+    live = cache_module.RedisCache(ttl_s=60)
+    monkeypatch.setattr(gateway, "get_cache", lambda: live)
+    return live
+
+
+@pytest.fixture(autouse=True)
 def fake_redis():
     import fakeredis
 
