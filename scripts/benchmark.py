@@ -80,7 +80,10 @@ def _hard_failover(code: str, thing: str, tag: str) -> list[dict]:
 def _hard_deadlock(code: str, thing: str, tag: str) -> list[dict]:
     return [
         {"role": "system", "content": "You are a distributed-systems expert. " * 40},
-        {"role": "user", "content": f"Debug this and explain why it deadlocks:\n```python\n{code}```"},
+        {
+            "role": "user",
+            "content": f"Debug this and explain why it deadlocks:\n```python\n{code}```",
+        },
         {"role": "assistant", "content": "Let's work through it."},
         {
             "role": "user",

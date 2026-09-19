@@ -1,5 +1,7 @@
 # LLM Cost Autopilot
 
+[![CI](https://github.com/omkar-ramesh/llm-cost-autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/omkar-ramesh/llm-cost-autopilot/actions/workflows/ci.yml)
+
 An OpenAI-compatible LLM gateway that reduces inference spend automatically. It scores
 every prompt for complexity, routes simple prompts to cheaper models and difficult
 prompts to more capable ones, enforces per-tenant budgets, and uses an LLM judge to

@@ -10,7 +10,7 @@ test:
 	pytest -q
 
 lint:
-	ruff check app tests
+	ruff check app tests scripts
 
 bench:
 	python scripts/benchmark.py $(BENCH_ARGS)
