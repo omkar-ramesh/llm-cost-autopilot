@@ -254,19 +254,17 @@ escalations, and budget cap events.
 
 ## Tech stack
 
-<p>
-  <img src="assets/logos/python.svg" height="40" alt="Python" title="Python">
-  <img src="assets/logos/fastapi.svg" height="40" alt="FastAPI" title="FastAPI">
-  <img src="assets/logos/pydantic.svg" height="40" alt="Pydantic" title="Pydantic">
-  <img src="assets/logos/postgresql.svg" height="40" alt="PostgreSQL" title="PostgreSQL">
-  <img src="assets/logos/redis.svg" height="40" alt="Redis" title="Redis">
-  <img src="assets/logos/docker.svg" height="40" alt="Docker" title="Docker">
-  <img src="assets/logos/prometheus.svg" height="40" alt="Prometheus" title="Prometheus">
-  <img src="assets/logos/grafana.svg" height="40" alt="Grafana" title="Grafana">
-  <img src="https://img.shields.io/badge/OpenAI_API-412991?style=for-the-badge&logo=openai&logoColor=white" height="28" alt="OpenAI API">
-  <img src="assets/logos/pytest.svg" height="40" alt="Pytest" title="Pytest">
-  <img src="assets/logos/ruff.svg" height="40" alt="Ruff" title="Ruff">
-</p>
+![Python](https://img.shields.io/badge/Python_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Pydantic](https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white)
+![OpenAI](https://img.shields.io/badge/OpenAI_API-412991?style=for-the-badge&logo=openai&logoColor=white)
+![Pytest](https://img.shields.io/badge/Pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)
+![Ruff](https://img.shields.io/badge/Ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black)
 
 | Layer | Choice | Reason |
 | --- | --- | --- |
