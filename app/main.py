@@ -3,10 +3,11 @@ from typing import Any
 
 from fastapi import Depends, FastAPI
 from fastapi import Request as FastAPIRequest
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlmodel import Session
 
-from app import gateway
+from app import gateway, metrics
 from app.auth import Principal, authenticate
 from app.db import get_session, init_db
 
@@ -18,6 +19,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="LLM Cost Autopilot", lifespan=lifespan)
+
+
+@app.get("/metrics")
+async def prometheus_metrics() -> Response:
+    return Response(generate_latest(metrics.REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/healthz")

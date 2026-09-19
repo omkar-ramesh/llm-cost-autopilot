@@ -26,6 +26,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://autopilot:autopilot@postgres:5432/autopilot
       REDIS_URL: redis://redis:6379/0
+      MOCK_PROVIDERS: ${MOCK_PROVIDERS:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
@@ -33,6 +34,26 @@ services:
       redis: {condition: service_healthy}
     volumes:
       - ./config:/app/config
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    ports: ["9090:9090"]
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on: [api]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
 
 volumes:
   pgdata:

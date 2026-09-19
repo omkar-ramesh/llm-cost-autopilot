@@ -1,0 +1,182 @@
+{
+  "uid": "llm-cost-autopilot",
+  "title": "LLM Cost Autopilot",
+  "tags": ["llm", "cost"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total spend (USD)",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "decimals": 4 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(autopilot_spend_usd_total)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total savings (USD)",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "color": { "mode": "fixed", "fixedColor": "green" }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(autopilot_savings_usd_total)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Savings rate",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "decimals": 1, "max": 1, "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(autopilot_savings_usd_total) / clamp_min(sum(autopilot_baseline_spend_usd_total), 1e-12)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Requests",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(autopilot_requests_total)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Spend per hour (USD/h)",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(autopilot_spend_usd_total[5m])) * 3600",
+          "legendFormat": "actual"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(autopilot_baseline_spend_usd_total[5m])) * 3600",
+          "legendFormat": "baseline"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Spend per hour by model (USD/h)",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "custom": { "fillOpacity": 10, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (routed_model) (rate(autopilot_spend_usd_total[5m])) * 3600",
+          "legendFormat": "{{routed_model}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Tokens per second",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (kind) (rate(autopilot_tokens_total[5m]))",
+          "legendFormat": "{{kind}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Latency p95 / p50 by model",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, routed_model) (rate(autopilot_request_latency_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{routed_model}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.50, sum by (le, routed_model) (rate(autopilot_request_latency_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{routed_model}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Request rate by status",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status, routed_model) (rate(autopilot_requests_total[5m]))",
+          "legendFormat": "{{status}} {{routed_model}}"
+        }
+      ]
+    }
+  ]
+}

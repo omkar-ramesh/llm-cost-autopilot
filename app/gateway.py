@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlmodel import Session
 
-from app import providers
+from app import metrics, providers
 from app.auth import Principal
 from app.cache import get_cache
 from app.config import get_settings
@@ -49,6 +49,7 @@ def _log_request(
     completion_tokens: int,
     latency_ms: int,
     status: str,
+    cache_hit: bool = False,
 ) -> Request:
     cost = cost_usd(routed_model, prompt_tokens, completion_tokens)
     baseline = cost_usd(requested_model, prompt_tokens, completion_tokens)
@@ -63,13 +64,27 @@ def _log_request(
         cost_usd=cost,
         baseline_cost_usd=baseline,
         latency_ms=latency_ms,
-        cache_hit=False,
+        cache_hit=cache_hit,
         status=status,
         complexity_score=0.0,
     )
     session.add(row)
     session.commit()
     session.refresh(row)
+
+    metrics.record_request(
+        tenant_id=row.tenant_id,
+        requested_model=requested_model,
+        routed_model=routed_model,
+        tier=PASSTHROUGH_TIER,
+        status=status,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost_usd=row.cost_usd,
+        baseline_cost_usd=row.baseline_cost_usd,
+        latency_ms=latency_ms,
+        cache_hit=cache_hit,
+    )
     return row
 
 
@@ -82,10 +97,9 @@ async def handle_completion(
     cache_key = json.dumps(payload, sort_keys=True, default=str)
     cached = await get_cache().get(cache_key)
     if cached is not None:
-        row = _log_request(session, principal, requested_model, routed_model, 0, 0, 0, "ok")
-        row.cache_hit = True
-        session.add(row)
-        session.commit()
+        row = _log_request(
+            session, principal, requested_model, routed_model, 0, 0, 0, "ok", cache_hit=True
+        )
         headers = _headers(routed_model, 0.0, row.baseline_cost_usd)
         return GatewayResult(body=cached, headers=headers)
 
