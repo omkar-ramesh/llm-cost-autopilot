@@ -38,13 +38,19 @@ async def chat_completions(
     session: Session = Depends(get_session),
 ) -> Any:
     payload = await request.json()
+    headers = dict(request.headers)
 
     if payload.get("stream"):
+        _, decision = gateway.plan(payload, headers)
         return StreamingResponse(
-            gateway.stream_completion(payload, principal),
+            gateway.stream_completion(payload, principal, headers),
             media_type="text/event-stream",
-            headers={"x-autopilot-model": payload.get("model", "")},
+            headers={
+                gateway.MODEL_HEADER: decision.primary,
+                "x-autopilot-tier": decision.tier,
+                "x-autopilot-complexity": f"{decision.score:.4f}",
+            },
         )
 
-    result = await gateway.handle_completion(payload, principal, session)
+    result = await gateway.handle_completion(payload, principal, session, headers)
     return JSONResponse(content=result.body, headers=result.headers)

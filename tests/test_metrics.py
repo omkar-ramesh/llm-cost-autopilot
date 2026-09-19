@@ -1,4 +1,4 @@
-import json
+﻿import json
 import re
 from pathlib import Path
 
@@ -34,7 +34,7 @@ def test_metrics_endpoint_exposes_counters(client, monkeypatch):
         "autopilot_requests_total",
         tenant_id="1",
         routed_model="gpt-4o-mini",
-        tier="passthrough",
+        tier="cheap",
         status="ok",
     )
 
@@ -46,7 +46,7 @@ def test_metrics_endpoint_exposes_counters(client, monkeypatch):
         "autopilot_requests_total",
         tenant_id="1",
         routed_model="gpt-4o-mini",
-        tier="passthrough",
+        tier="cheap",
         status="ok",
     )
 
@@ -91,3 +91,4 @@ def test_dashboard_queries_reference_real_metrics():
 
     assert referenced
     assert referenced <= exported, referenced - exported
+

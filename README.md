@@ -21,8 +21,19 @@ curl localhost:8000/v1/chat/completions \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-Every response carries `x-autopilot-model`, `x-autopilot-cost-usd`, and `x-autopilot-savings-usd`,
-and every request is logged to the `requests` table.
+Every response carries `x-autopilot-model`, `x-autopilot-cost-usd`, `x-autopilot-savings-usd`,
+`x-autopilot-tier`, and `x-autopilot-complexity`; every request is logged to the `requests` table.
+
+### Routing
+
+Each prompt gets a heuristic complexity score (0-1) that selects a tier — `cheap` (≤0.35),
+`mid` (≤0.70), `premium` — and the request falls back up the chain on timeout/429/5xx.
+Callers can steer per request:
+
+| Header | Effect |
+| --- | --- |
+| `x-autopilot-mode: cheap\|balanced\|quality` | Force cheapest tier, score-based (default), or premium |
+| `x-autopilot-model: <model>` | Pin an exact model and skip routing |
 
 ## Development
 

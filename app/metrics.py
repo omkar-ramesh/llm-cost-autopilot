@@ -46,6 +46,13 @@ cache_hits_total = Counter(
     registry=REGISTRY,
 )
 
+fallbacks_total = Counter(
+    "autopilot_fallbacks_total",
+    "Times a model in the chain failed and the next was tried",
+    ["failed_model"],
+    registry=REGISTRY,
+)
+
 request_latency_seconds = Histogram(
     "autopilot_request_latency_seconds",
     "End-to-end gateway latency",
