@@ -1,13 +1,13 @@
-import json
+﻿import json
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from sqlmodel import Session
 
-from app import metrics, providers, router
+from app import metrics, providers, quality, router
 from app.auth import Principal
 from app.cache import get_cache
 from app.config import get_routing_config, get_settings
@@ -43,13 +43,6 @@ def is_retryable(exc: Exception) -> bool:
         return True
     return "5xx" in triggers and status >= 500
 
-
-def _as_dict(response: Any) -> dict[str, Any]:
-    if isinstance(response, dict):
-        return response
-    if hasattr(response, "model_dump"):
-        return response.model_dump()
-    return json.loads(response.json())
 
 
 def _headers(decision: router.RoutingDecision, routed_model: str, cost: float, savings: float):
@@ -114,13 +107,22 @@ def _log_request(
 def plan(payload: dict[str, Any], headers: dict[str, str]) -> tuple[str, router.RoutingDecision]:
     lowered = {k.lower(): v for k, v in headers.items()}
     requested_model = payload.get("model") or get_settings().default_model
+    messages = payload.get("messages", [])
+    tools = payload.get("tools")
     decision = router.route(
-        payload.get("messages", []),
+        messages,
         mode=lowered.get(MODE_HEADER),
         model_override=lowered.get(MODEL_HEADER),
-        tools=payload.get("tools"),
+        tools=tools,
+        escalated=quality.is_escalated(quality.prompt_class(messages, tools)),
     )
     return requested_model, decision
+
+
+def routed_down(requested_model: str, routed_model: str) -> bool:
+    return routed_model != requested_model and cost_usd(requested_model, 1000, 1000) > cost_usd(
+        routed_model, 1000, 1000
+    )
 
 
 async def _call_with_fallback(payload: dict[str, Any], decision: router.RoutingDecision):
@@ -142,6 +144,7 @@ async def handle_completion(
     principal: Principal,
     session: Session,
     headers: dict[str, str] | None = None,
+    background: BackgroundTasks | None = None,
 ) -> GatewayResult:
     requested_model, decision = plan(payload, headers or {})
 
@@ -160,7 +163,7 @@ async def handle_completion(
     started = time.perf_counter()
     try:
         routed_model, raw = await _call_with_fallback(payload, decision)
-        response = _as_dict(raw)
+        response = providers.as_dict(raw)
     except Exception as exc:
         _log_request(
             session, principal, requested_model, decision.primary, decision,
@@ -184,9 +187,25 @@ async def handle_completion(
         "ok",
     )
     savings = row.baseline_cost_usd - row.cost_usd
-    return GatewayResult(
+    result = GatewayResult(
         body=response, headers=_headers(decision, routed_model, row.cost_usd, savings)
     )
+
+    if (
+        background is not None
+        and routed_down(requested_model, routed_model)
+        and quality.should_sample()
+    ):
+        background.add_task(
+            quality.run_shadow_eval,
+            row.id,
+            payload.get("messages", []),
+            quality.answer_text(response),
+            requested_model,
+            quality.prompt_class(payload.get("messages", []), payload.get("tools")),
+        )
+
+    return result
 
 
 async def stream_completion(
@@ -203,7 +222,7 @@ async def stream_completion(
     try:
         routed_model, stream = await _call_with_fallback({**payload, "stream": True}, decision)
         async for chunk in stream:
-            data = _as_dict(chunk)
+            data = providers.as_dict(chunk)
             usage = data.get("usage")
             if usage:
                 prompt_tokens = usage.get("prompt_tokens", prompt_tokens)
@@ -226,3 +245,4 @@ async def stream_completion(
                 int((time.perf_counter() - started) * 1000),
                 status,
             )
+

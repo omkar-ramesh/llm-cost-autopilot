@@ -9,5 +9,10 @@
 - Savings counter only increments when savings > 0 (populated from Phase 3 onward, once the router routes down).
 - Scorer weights calibrated against a sample spread, not fitted to one prompt: code/math/schema signals (0.35) outweigh conversation turns (0.12), since turn count is a weak difficulty signal.
 - Fallback chain = chosen tier then every tier above it, so a retryable failure escalates quality rather than degrading it.
+- Prompt class = dominant signal + length bucket (e.g. `code:long`), so escalation lifts a family of prompts rather than one request.
+- Shadow-eval baseline/judge calls are not written to `requests` — they would pollute savings — but their spend is counted in `autopilot_shadow_eval_cost_usd_total`.
+- Escalation state lives in Redis with a 24h TTL; `is_escalated` fails open, since a Redis outage must not break live traffic.
+- Mock mode returns a valid JSON verdict for judge prompts, otherwise every mock eval would score 0 and escalate everything.
+- Shadow sampling is disabled by default in tests (autouse fixture); the 5% sampler otherwise made unrelated routing tests randomly flaky.
 - `fallback_on` entries are normalised to strings — YAML parses bare `429` as an int, which silently disabled 429 retries.
 - Phase 1 logs `tier="passthrough"` and `complexity_score=0.0` until the router lands in Phase 3.

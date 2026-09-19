@@ -161,11 +161,59 @@
       ]
     },
     {
+      "id": 10,
+      "type": "stat",
+      "title": "Shadow-eval pass rate",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 21 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "decimals": 1, "min": 0, "max": 1 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(autopilot_evals_total{passed=\"true\"}) / clamp_min(sum(autopilot_evals_total), 1)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Shadow-eval cost (USD/h)",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 21 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(autopilot_shadow_eval_cost_usd_total[5m]) * 3600",
+          "legendFormat": "quality-check spend"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Tier escalations",
+      "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 21 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (prompt_class) (autopilot_escalations_total)",
+          "legendFormat": "{{prompt_class}}"
+        }
+      ]
+    },
+    {
       "id": 9,
       "type": "timeseries",
       "title": "Request rate by status",
       "datasource": { "type": "prometheus", "uid": "autopilot-prom" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 29 },
       "fieldConfig": {
         "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10 } },
         "overrides": []

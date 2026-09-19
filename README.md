@@ -35,6 +35,19 @@ Callers can steer per request:
 | `x-autopilot-mode: cheap\|balanced\|quality` | Force cheapest tier, score-based (default), or premium |
 | `x-autopilot-model: <model>` | Pin an exact model and skip routing |
 
+### Quality guard
+
+A sampled share of routed-down requests (5% by default) is re-run on the originally
+requested model and scored by a judge model. Scores land in the `evals` table; after
+3 consecutive failures a prompt class is routed one tier higher for 24h.
+
+```bash
+curl localhost:8000/v1/autopilot/quality -H "Authorization: Bearer sk-autopilot-dev"
+```
+
+Shadow-eval spend is tracked separately (`autopilot_shadow_eval_cost_usd_total`) so the
+cost of proving quality is never mistaken for savings.
+
 ## Development
 
 ```bash

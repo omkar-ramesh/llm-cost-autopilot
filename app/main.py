@@ -1,13 +1,13 @@
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import BackgroundTasks, Depends, FastAPI
 from fastapi import Request as FastAPIRequest
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlmodel import Session
 
-from app import gateway, metrics
+from app import gateway, metrics, quality
 from app.auth import Principal, authenticate
 from app.db import get_session, init_db
 
@@ -34,6 +34,7 @@ async def healthz() -> dict[str, str]:
 @app.post("/v1/chat/completions")
 async def chat_completions(
     request: FastAPIRequest,
+    background: BackgroundTasks,
     principal: Principal = Depends(authenticate),
     session: Session = Depends(get_session),
 ) -> Any:
@@ -52,5 +53,13 @@ async def chat_completions(
             },
         )
 
-    result = await gateway.handle_completion(payload, principal, session, headers)
+    result = await gateway.handle_completion(payload, principal, session, headers, background)
     return JSONResponse(content=result.body, headers=result.headers)
+
+
+@app.get("/v1/autopilot/quality")
+async def quality_report(
+    principal: Principal = Depends(authenticate),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    return quality.pass_rate_by_tier(session)

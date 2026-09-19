@@ -26,6 +26,19 @@ class ApiKey(SQLModel, table=True):
     active: bool = True
 
 
+class Eval(SQLModel, table=True):
+    __tablename__ = "evals"
+
+    id: int | None = Field(default=None, primary_key=True)
+    request_id: int = Field(foreign_key="requests.id", index=True)
+    judge_model: str
+    score: float
+    passed: bool
+    reason: str = ""
+    prompt_class: str = Field(default="", index=True)
+    ts: datetime = Field(default_factory=utcnow, index=True)
+
+
 class Request(SQLModel, table=True):
     __tablename__ = "requests"
 

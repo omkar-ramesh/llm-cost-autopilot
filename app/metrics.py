@@ -53,6 +53,32 @@ fallbacks_total = Counter(
     registry=REGISTRY,
 )
 
+evals_total = Counter(
+    "autopilot_evals_total",
+    "Shadow evals completed",
+    ["tier", "passed"],
+    registry=REGISTRY,
+)
+
+escalations_total = Counter(
+    "autopilot_escalations_total",
+    "Prompt classes escalated a tier after repeated shadow-eval failures",
+    ["prompt_class"],
+    registry=REGISTRY,
+)
+
+shadow_eval_cost_usd_total = Counter(
+    "autopilot_shadow_eval_cost_usd_total",
+    "Spend on baseline + judge calls made for shadow evaluation",
+    registry=REGISTRY,
+)
+
+shadow_eval_errors_total = Counter(
+    "autopilot_shadow_eval_errors_total",
+    "Shadow evals that failed to complete",
+    registry=REGISTRY,
+)
+
 request_latency_seconds = Histogram(
     "autopilot_request_latency_seconds",
     "End-to-end gateway latency",

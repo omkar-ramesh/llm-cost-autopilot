@@ -1,4 +1,4 @@
-"""Complexity scoring + tier selection. `score_complexity` is pure so it is swappable."""
+﻿"""Complexity scoring + tier selection. `score_complexity` is pure so it is swappable."""
 
 import re
 from dataclasses import dataclass
@@ -58,6 +58,7 @@ class RoutingDecision:
     score: float
     mode: str
     override: bool = False
+    escalated: bool = False
 
     @property
     def primary(self) -> str:
@@ -68,7 +69,7 @@ def estimate_tokens(text: str) -> int:
     return max(len(text) // 4, 0)
 
 
-def _message_text(message: dict[str, Any]) -> str:
+def message_text(message: dict[str, Any]) -> str:
     content = message.get("content")
     if isinstance(content, str):
         return content
@@ -79,7 +80,7 @@ def _message_text(message: dict[str, Any]) -> str:
     return ""
 
 
-def _any_match(patterns: tuple[str, ...], text: str) -> bool:
+def any_match(patterns: tuple[str, ...], text: str) -> bool:
     return any(re.search(p, text, re.IGNORECASE | re.MULTILINE) for p in patterns)
 
 
@@ -88,8 +89,8 @@ def score_complexity(messages: list[dict[str, Any]], tools: list | None = None) 
     if not messages:
         return 0.0
 
-    system_text = " ".join(_message_text(m) for m in messages if m.get("role") == "system")
-    body_text = " ".join(_message_text(m) for m in messages if m.get("role") != "system")
+    system_text = " ".join(message_text(m) for m in messages if m.get("role") == "system")
+    body_text = " ".join(message_text(m) for m in messages if m.get("role") != "system")
 
     length = min(estimate_tokens(body_text) / LENGTH_SATURATION_TOKENS, 1.0)
     system = min(estimate_tokens(system_text) / SYSTEM_SATURATION_TOKENS, 1.0)
@@ -100,9 +101,9 @@ def score_complexity(messages: list[dict[str, Any]], tools: list | None = None) 
     full_text = f"{system_text}\n{body_text}"
     signal_hits = sum(
         [
-            _any_match(CODE_PATTERNS, full_text),
-            _any_match(MATH_PATTERNS, full_text),
-            _any_match(SCHEMA_PATTERNS, full_text),
+            any_match(CODE_PATTERNS, full_text),
+            any_match(MATH_PATTERNS, full_text),
+            any_match(SCHEMA_PATTERNS, full_text),
             bool(tools),
         ]
     )
@@ -166,6 +167,7 @@ def route(
     model_override: str | None = None,
     tools: list | None = None,
     force_cheapest: bool = False,
+    escalated: bool = False,
 ) -> RoutingDecision:
     score = score_complexity(messages, tools)
     mode = normalise_mode(mode)
@@ -187,4 +189,16 @@ def route(
     else:
         tier = tier_for_score(score)
 
-    return RoutingDecision(tier=tier, models=fallback_chain(tier), score=score, mode=mode)
+    # A prompt class that repeatedly failed shadow eval is routed one tier higher.
+    # An explicit cheap mode or budget-forced downgrade still wins.
+    if escalated and not (force_cheapest or mode == MODE_CHEAP):
+        tier = ordered[min(ordered.index(tier) + 1, len(ordered) - 1)]
+
+    return RoutingDecision(
+        tier=tier,
+        models=fallback_chain(tier),
+        score=score,
+        mode=mode,
+        escalated=escalated,
+    )
+

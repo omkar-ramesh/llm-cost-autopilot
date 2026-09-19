@@ -22,6 +22,26 @@ def fresh_db():
     db._engine = None
 
 
+@pytest.fixture(autouse=True)
+def no_shadow_sampling(monkeypatch):
+    """Shadow eval is random at 5%; tests that want it opt in explicitly."""
+    from app import quality
+
+    monkeypatch.setattr(quality, "should_sample", lambda: False)
+
+
+@pytest.fixture(autouse=True)
+def fake_redis():
+    import fakeredis
+
+    from app import redis_client
+
+    client = fakeredis.FakeRedis(decode_responses=True)
+    redis_client.set_redis(client)
+    yield client
+    redis_client.set_redis(None)
+
+
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient
