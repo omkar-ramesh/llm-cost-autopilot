@@ -30,48 +30,98 @@ below; it costs nothing to run, no cloud API key required.
 
 ## Architecture
 
+**Request pipeline** — what happens to every `/v1/chat/completions` call:
+
+```mermaid
+sequenceDiagram
+    participant Client as OpenAI SDK client
+    participant GW as Gateway
+    participant Redis
+    participant Router
+    participant LLM as Provider (via LiteLLM)
+    participant PG as Postgres
+
+    Client->>GW: POST /v1/chat/completions
+    GW->>Redis: check tenant budget
+    alt over hard cap
+        GW-->>Client: 429 budget_exceeded
+    end
+    GW->>Redis: cache lookup
+    alt cache hit
+        GW-->>Client: cached response (cost $0)
+    end
+    GW->>Router: score prompt complexity
+    Router-->>GW: tier (cheap / mid / premium)
+    GW->>LLM: call routed model
+    Note over GW,LLM: retries next tier up on<br/>timeout / 429 / 5xx
+    LLM-->>GW: completion
+    GW->>PG: log request + cost + savings
+    GW->>Redis: update spend counters
+    GW-->>Client: response + x-autopilot-* headers
+```
+
+**Feedback loop** — how the system checks and corrects its own quality:
+
+```mermaid
+flowchart TD
+    A[Routed-down request completes] -->|5% sampled| B[Re-run on originally<br/>requested model]
+    B --> C[Judge model scores<br/>cheap vs. reference answer]
+    C -->|score stored| D[(Postgres: evals table)]
+    C -->|fail| E[Redis: increment fail streak<br/>for this prompt class]
+    E -->|3 consecutive fails| F[Escalate that prompt class<br/>one tier higher, 24h]
+    F -.->|next matching request| G[Router applies escalation]
+```
+
+**Observability:**
+
 ```mermaid
 flowchart LR
-    C[OpenAI SDK client] -->|POST /v1/chat/completions| G[Gateway]
-
-    subgraph Pipeline
-        direction TB
-        A[auth: key to tenant] --> B[budget check]
-        B --> CA[cache lookup]
-        CA --> R[router: complexity score to tier]
-        R --> P[provider call via LiteLLM<br/>fallback chain on timeout/429/5xx]
-    end
-
-    G --> A
-    P --> L[log request + cost]
-    L --> G
-    G -->|response + cost headers| C
-
-    B -.->|soft cap| W[webhook alert]
-    L -.->|sampled routed-down| Q[shadow eval + judge]
-    Q -.->|3 consecutive fails| R
-
-    L --> PG[(Postgres<br/>requests, evals, budget_events)]
-    B <--> RD[(Redis<br/>spend, escalation, cache)]
-    L --> PR[Prometheus] --> GR[Grafana]
+    GW[Gateway] --> PG[(Postgres<br/>requests · evals · budget_events)]
+    GW --> RD[(Redis<br/>spend · cache · escalation)]
+    GW --> PR[Prometheus]
+    PR --> GR[Grafana dashboard]
+    GW -.->|soft/hard cap crossed| WH[Webhook alert]
 ```
 
 ## Quickstart
 
-Requires Docker.
+Requires [Docker](https://docs.docker.com/get-docker/).
+
+**1. Clone the repo:**
 
 ```bash
 git clone https://github.com/omkar-ramesh/llm-cost-autopilot.git
 cd llm-cost-autopilot
-MOCK_PROVIDERS=true make up   # api :8000, postgres, redis, prometheus :9090, grafana :3000
-curl localhost:8000/healthz
 ```
 
-`MOCK_PROVIDERS=true` runs the entire stack — routing, budgets, quality checks, dashboard —
-without any provider API key, using canned responses. Drop the flag and set `OPENAI_API_KEY`
-/ `ANTHROPIC_API_KEY` to hit real providers instead.
+**2. Start the stack** (mock mode — no provider API key needed):
 
-Send a request:
+```bash
+MOCK_PROVIDERS=true make up
+```
+
+<details>
+<summary>Windows (PowerShell) equivalent</summary>
+
+```powershell
+$env:MOCK_PROVIDERS="true"
+docker compose up --build -d
+```
+</details>
+
+This starts the API (`:8000`), Postgres, Redis, Prometheus (`:9090`), and Grafana (`:3000`).
+First run pulls Docker images and takes a minute or two — wait for it to finish before the
+next step. Check it's ready:
+
+```bash
+curl localhost:8000/healthz
+# {"status":"ok"}
+```
+
+If that fails, containers are probably still starting — wait a few seconds and retry, or
+check with `docker compose ps` (all should say "healthy" or "Up").
+
+**3. Send a request:**
 
 ```bash
 curl localhost:8000/v1/chat/completions \
@@ -194,18 +244,30 @@ and budget cap events.
 
 ## Tech stack
 
-| Layer | Choice |
-| --- | --- |
-| Language | Python 3.12 |
-| Web framework | FastAPI + Uvicorn |
-| LLM provider abstraction | LiteLLM (OpenAI, Anthropic, Ollama, and others) |
-| Database | PostgreSQL + SQLModel |
-| Cache / counters | Redis |
-| Metrics | Prometheus |
-| Dashboard | Grafana |
-| Containerization | Docker + Docker Compose |
-| Testing | pytest (127 tests, all provider calls mocked) |
-| Linting | ruff |
+![Python](https://img.shields.io/badge/Python_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Pydantic](https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white)
+![OpenAI](https://img.shields.io/badge/OpenAI_API-412991?style=for-the-badge&logo=openai&logoColor=white)
+![Pytest](https://img.shields.io/badge/Pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)
+![Ruff](https://img.shields.io/badge/Ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black)
+
+| Layer | Choice | Why |
+| --- | --- | --- |
+| Language | Python 3.12 | — |
+| Web framework | FastAPI + Uvicorn | Async, OpenAPI schema for free, dependency injection for auth/session |
+| LLM provider abstraction | [LiteLLM](https://github.com/BerriAI/litellm) | One interface over OpenAI, Anthropic, Ollama, and 100+ providers |
+| Database | PostgreSQL + SQLModel | Source of truth for requests, evals, budget events |
+| Cache / counters | Redis | Spend counters, response cache, escalation state — all need atomic, fast reads/writes |
+| Metrics | Prometheus | Standard `/metrics` scrape target |
+| Dashboard | Grafana | Auto-provisioned on startup, no manual setup |
+| Containerization | Docker + Docker Compose | One-command `make up` for the whole stack |
+| Testing | pytest — 127 tests, every provider call mocked | Nothing in CI touches a real API or costs money |
+| Linting | ruff | Fast, single tool for style + import sorting |
 
 ## Development
 
