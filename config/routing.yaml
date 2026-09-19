@@ -1,0 +1,27 @@
+tiers:
+  cheap:
+    models: [gpt-4o-mini, claude-haiku-4-5]
+    max_score: 0.35
+  mid:
+    models: [gpt-4o, claude-sonnet-5]
+    max_score: 0.70
+  premium:
+    models: [claude-opus-5]
+    max_score: 1.00
+
+fallback_on: [timeout, 429, 5xx]
+
+shadow_eval:
+  sample_rate: 0.05
+  judge: gpt-4o
+  pass_threshold: 0.8
+
+escalate_after_fails: 3
+
+# [input_per_1m_usd, output_per_1m_usd]
+prices_per_1m:
+  gpt-4o-mini: [0.15, 0.60]
+  gpt-4o: [2.50, 10.00]
+  claude-haiku-4-5: [1.00, 5.00]
+  claude-sonnet-5: [3.00, 15.00]
+  claude-opus-5: [15.00, 75.00]

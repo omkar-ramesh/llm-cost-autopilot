@@ -1,0 +1,43 @@
+[project]
+name = "llm-cost-autopilot"
+version = "0.1.0"
+description = "OpenAI-compatible gateway that cuts LLM spend automatically"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "litellm>=1.52",
+    "sqlmodel>=0.0.22",
+    "psycopg[binary]>=3.2",
+    "redis>=5.2",
+    "pydantic-settings>=2.6",
+    "prometheus-client>=0.21",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]  # FastAPI Depends() in defaults is the documented pattern
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
